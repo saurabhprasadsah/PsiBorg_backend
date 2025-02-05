@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const notificationSchema = mongoose.Schema(
+const notificationSchema = new mongoose.Schema(
   {
     type: {
       type: String,
@@ -26,9 +26,26 @@ const notificationSchema = mongoose.Schema(
       enum: ["unread", "read"],
       default: "unread",
     },
+    referenceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: "typeReference",
+      default: null, // Can be null if not linked to a post or comment
+    },
+    typeReference: {
+      type: String,
+      enum: ["Post", "Comment", "Message"], // Defines the reference type
+      default: null,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false, // Allows soft deletion instead of removing the document
+    },
   },
-  { timestamps: true } // Automatically add createdAt and updatedAt fields
+  { timestamps: true } // Automatically adds createdAt and updatedAt fields
 );
+
+// Indexing for better query performance
+notificationSchema.index({ recipient: 1, status: 1 });
 
 const Notification = mongoose.model("Notification", notificationSchema);
 

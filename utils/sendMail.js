@@ -118,7 +118,7 @@ async function sendConfirmationMail(to) {
 
 
   await transporter.sendMail({
-    from: '"Your Chat" <spareg1234@gmail.com>',
+    from: '"Your Chat" <kumarsaurabh2910@gmail.com>',
     to: `${to}`,
     subject: "Backend Team - Verification",
     text: "Hello from Backend Team, Thank you for signing up for Backend Team.",
@@ -128,4 +128,4 @@ async function sendConfirmationMail(to) {
   return true;
 }
 
-module.exports=sendConfirmationMail;
+module.exports = sendConfirmationMail;

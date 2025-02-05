@@ -1,131 +1,129 @@
-const { userSchema, loginSchema } = require("../schema/auth-schema.js");
-const Blacklist= require("../models/blacklist.js");
-const User = require("../models/users.js");
 const jwt = require("jsonwebtoken");
-const rateLimit= require('express-rate-limit');
+const User = require("../models/users");
+const rateLimit = require('express-rate-limit');
 
+/**
+ * @desc Rate limiter middleware for request throttling
+ */
 const requestLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per window
-  message: "Too many attempts from this IP. Please try again later.",
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: { success: false, message: "Too many requests, please try again later" }
 });
 
-module.exports={requestLimiter};
-module.exports.validateRegister = async (req, res, next) => {
+/**
+ * @desc Middleware to validate JWT authentication
+ */
+const validateAuthToken = async (req, res, next) => {
   try {
-    const { error } = userSchema.validate(req.body);
-    if (error) {
-      res.status(404).json({ success: false, error: error.message });
-    } else {
-      next();
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
+    const token = req.header("Authorization")?.replace("Bearer ", "").trim();
 
-module.exports.validateIsExist = async (req, res, next) => {
-  try {
-    const isExisted = await User.findOne({ email: req.body.email });
-    if (isExisted) {
-      return res
-        .status(409)
-        .json({ success: false, message: "Email is already exists" });
-    } else {
-      next();
+    if (!token) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
 
-module.exports.validateLogin = async (req, res, next) => {
-  try {
-    const { error } = loginSchema.validate(req.body);
-    if (error) {
-      res.status(404).json({ success: false, message: error.message });
-    } else {
-      next();
-    }
-  } catch (err) {
-    res.status(err.status).json({ success: false, message: err.message });
-  }
-};
+    const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
+    const user = await User.findById(decoded.userId);
 
-module.exports.validateIsRegistered = async (req, res, next) => {
-  try {
-    const user = await User.findOne({
-      email: req.body.email,
-    });
     if (!user) {
-      res.status(404).json({ success: false, message: "User not found" });
-    } else {
-      const areValidCredentials= await  user.comparePassword(req.body.password);
-      if (!areValidCredentials) {
-        res
-          .status(401)
-          .json({ message: "Invalid credentials", success: false });
-      } else {
-        next();
-      }
+      return res.status(401).json({ success: false, message: "Invalid token" });
     }
+
+    req.user = user;
+    next();
   } catch (error) {
-    res.status(500).json({ message: error.message, success: false });
+    console.error("Authentication error:", error);
+    res.status(401).json({ success: false, message: "Invalid token" });
   }
 };
 
+/**
+ * @desc Middleware to validate user registration input
+ */
+const validateRegister = (req, res, next) => {
+  const { name, email, password } = req.body;
 
-//User Router Middleware
-//creating a middleware to check whether user has the token or not
-module.exports.validateAuthToken = async (req, res, next) => {
-  // Validate JWT token here
-  try {
-    if (!req.header("Authorization")) {
-      return res.status(403).json({ message: "No Token Provided", success: false });
-    } else {
-      const token = req.header("Authorization").replace("Bearer ", "").trim();
-      if (!token) throw new Error("No token provided");
-      
-      // Check if the token is blacklisted
-    const isBlacklisted = await Blacklist.findOne({ token });
-    if (isBlacklisted) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Token is invalid (blacklisted)." });
-      }
-      const jwtVerified = jwt.verify(token, process.env.JWT_SECRET_KEY);
-      if (jwtVerified) next();
-      else
-        res.status(403).json({
-          success: false,
-          message:
-            "You are not authorized to access this page without registering first!",
-        });
-    }
-  } catch (error) {
-    if (error.message === "No token provided") {
-      res
-        .status(401)
-        .json({ success: false, message: "Authentication token is missing." });
-    } else if (
-      error.message === "You are not authorized to access this page "
-    ) {
-      res.status(403).json({ success: false, message: "Access denied." });
-    } else if (
-      error.message === "jwt malformed" ||
-      error.message === "invalid signature"
-    ) {
-      res
-        .status(401)
-        .json({ success: false, message: "Invalid or expired token." });
-    } else {
-      res.status(500).json({ message: error.message, success: false });
-    }
+  if (!name || !email || !password) {
+    return res.status(400).json({ success: false, message: "All fields are required" });
   }
+
+  if (password.length < 6) {
+    return res.status(400).json({ success: false, message: "Password must be at least 6 characters long" });
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ success: false, message: "Invalid email format" });
+  }
+
+  next();
+};
+
+/**
+ * @desc Middleware to check if user already exists
+ */
+const validateIsExist = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    const existingUser = await User.findOne({ email });
+
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: "User already exists" });
+    }
+
+    next();
+  } catch (error) {
+    console.error("Error checking user existence:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * @desc Middleware to validate login input
+ */
+const validateLogin = (req, res, next) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: "Email and password are required" });
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ success: false, message: "Invalid email format" });
+  }
+
+  next();
+};
+
+/**
+ * @desc Middleware to check if user is registered before login
+ */
+const validateIsRegistered = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Attach user to request object for later use
+    req.existingUser = user;
+    next();
+  } catch (error) {
+    console.error("Error checking user registration:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+module.exports = {
+  validateAuthToken,
+  validateRegister,
+  validateIsExist,
+  validateLogin,
+  validateIsRegistered,
+  requestLimiter
 };

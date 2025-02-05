@@ -1,86 +1,130 @@
-const User = require("../models/users.js");
+const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const UserModel = require("../models/users.js");
 const sendConfirmationMail = require("../utils/sendMail.js");
-const Blacklist = require("../models/blacklist.js");
+const BlacklistModel = require("../models/blacklist.js");
 
-const register = async (req, res) => {
+/**
+ * @desc Register a new user and send confirmation email
+ * @route POST /auth/register
+ */
+const registerUser = async (req, res) => {
   try {
+    const { username, email, password } = req.body;
 
-    //Molding it into data
-    const data = {
-      username: req.body.username,
-      email: req.body.email,
-      password:req.body.password,
-    };
+    // Check if the user already exists
+    const existingUser = await UserModel.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: "User already registered" });
+    }
 
-    //Storing the user and sending response
-    const newUser = await User.create(data);
+    // Hash the password before saving
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    //Sending an email for confirmation
-    await sendConfirmationMail(data.email);
-    
-    //Sending the response
-    res
-      .status(201)
-      .json({
-        success: true,
-        message: "Registration successful",
-        token: await newUser.generateJsonWebToken(),
-      });
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
+    // Store user data
+    const newUser = new UserModel({ username, email, password: hashedPassword });
+    await newUser.save();
 
-const login = async (req, res) => {
-  try {
-    const user = await User.findOne({ email: req.body.email });
-    res.status(200).json({
+    // Send confirmation email
+    await sendConfirmationMail(email);
+
+    // Generate JWT token
+    const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET_KEY, { expiresIn: "7d" });
+
+    res.status(201).json({
       success: true,
-      message: "Log In Successfully!",
-      userId:user._id,
-      token: await user.generateJsonWebToken(),
+      message: "Registration successful",
+      userId: newUser._id,
+      token,
     });
   } catch (error) {
-    res
-      .status(500)
-      .json({ success: false, error: error.message });
+    console.error("Error in registration:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-const logout = async (req, res) => {
-  const token = req.header("Authorization")?.replace("Bearer ", "").trim();
-
+/**
+ * @desc Login a user
+ * @route POST /auth/login
+ */
+const loginUser = async (req, res) => {
   try {
-    // Check if the token is already blacklisted
-    const isBlacklisted = await Blacklist.findOne({ token });
+    const { email, password } = req.body;
+
+    // Check if user exists
+    const user = await UserModel.findOne({ email }).select("+password");
+
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    // Verify password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    // Generate JWT Token
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET_KEY, { expiresIn: "7d" });
+
+    res.status(200).json({
+      success: true,
+      message: "Login successful",
+      userId: user._id,
+      token,
+    });
+  } catch (error) {
+    console.error("Error in login:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc Logout a user by blacklisting token
+ * @route GET /auth/logout
+ */
+const logoutUser = async (req, res) => {
+  try {
+    const token = req.header("Authorization")?.replace("Bearer ", "").trim();
+    if (!token) {
+      return res.status(400).json({ success: false, message: "No token provided" });
+    }
+
+    // Check if token is already blacklisted
+    const isBlacklisted = await BlacklistModel.findOne({ token });
     if (isBlacklisted) {
       return res.status(200).json({ success: true, message: "Already logged out." });
     }
 
-    // Save the token to the blacklist
-    await Blacklist.create({ token });
+    // Save token to blacklist
+    await BlacklistModel.create({ token });
 
     res.status(200).json({ success: true, message: "Logged out successfully." });
   } catch (error) {
-    console.error(error);
+    console.error("Error in logout:", error);
     res.status(500).json({ success: false, message: "An error occurred while logging out." });
   }
 };
 
-const validateAuthToken = async (req, res) => {
+/**
+ * @desc Validate JWT Token
+ * @route GET /auth/validate-token
+ */
+const validateUserToken = async (req, res) => {
   try {
-    const authToken = req.header("Authorization").replace("Bearer ", "").trim();
-    const verifiedUser = jwt.verify(authToken, process.env.JWT_SECRET_KEY);
-    if (verifiedUser) {
-      return res.status(200).json({ success: true, message: "Valid Token" });
-    } else {
-      return res.status(401).json({ success: false, message: "Invalid Token" });
+    const token = req.header("Authorization")?.replace("Bearer ", "").trim();
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Token is required" });
     }
+
+    // Verify token
+    const verifiedUser = jwt.verify(token, process.env.JWT_SECRET_KEY);
+
+    res.status(200).json({ success: true, message: "Valid Token", userId: verifiedUser.userId });
   } catch (error) {
+    console.error("Error in token validation:", error);
     res.status(401).json({ success: false, message: "Invalid Token" });
   }
 };
 
-module.exports = { login, register, logout,validateAuthToken };
+module.exports = { registerUser, loginUser, logoutUser, validateUserToken };

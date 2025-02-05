@@ -1,40 +1,31 @@
 const express = require("express");
 const Router = express.Router();
-const adminController=require('../controllers/admin-controller.js');
-const {validateAuthToken,validateRegister}=require('../middleware/auth-middleware.js')
-const {authorizeRole}=require('../middleware/roleCheck-middleware.js');
-const {isUserValid}=require('../middleware/user-middleware.js')
+const adminController = require("../controllers/admin-controller");
 
-// All Admin Routes ..
-//1. To get all users and (add)
-Router.route('/all-users')
-.get(validateAuthToken,authorizeRole(["viewAllProfiles"]),isUserValid,adminController.getAllUsersDetails)
-.post(validateAuthToken,validateRegister,authorizeRole(["viewAllProfiles"]),isUserValid,adminController.postUserDetails);
+const { validateAuthToken, validateRegister } = require("../middleware/auth-middleware");
+const { authorizeRole } = require("../middleware/roleCheck-middleware");
+const { isUserValid } = require("../middleware/user-middleware");
 
-//2. to manage single user (delete, update)
-Router.route('/all-users/:userId')
-.put(validateAuthToken,authorizeRole(["manageUsers"]),isUserValid,adminController.manageUsersDetails)
-.delete(validateAuthToken,authorizeRole(["manageUsers"]),isUserValid,adminController.deleteUserDetails)
+// // Debug: Print Loaded Admin Controller
+// console.log("Admin Controller Loaded: ", adminController);
 
-//3. to get all tasks (add tasks)
-Router.route('/all-users/:userId/tasks')
-.get(validateAuthToken,authorizeRole(["viewAllTasks"]),isUserValid,adminController.getAllTasksOfUser)
-.post(validateAuthToken,authorizeRole(["viewAllTasks"]),isUserValid,adminController.addTasksToUser);
+// // Throw error if `createUser` is missing
+// if (!adminController.createUser) {
+//   throw new Error("Error: 'createUser' function is undefined in admin-controller.js");
+// }
 
-//4. to manage single task (update, delete)
-Router.route('/all-users/:userId/tasks/:taskId')
-.put(validateAuthToken,authorizeRole(["assignTasks"]),isUserValid,adminController.updateTaskToUser)
-.delete(validateAuthToken,authorizeRole(["assignTasks"]),isUserValid,adminController.deleteTaskFromUser);
+// Get all users and create new user (Admin Only)
+Router.route("/all-users")
+  .get(validateAuthToken, authorizeRole(["viewAllProfiles"]), isUserValid, adminController.getAllUsers)
+  .post(validateAuthToken, validateRegister, authorizeRole(["createUser"]), isUserValid, adminController.createUser);
 
-//5. to get all tasks 
-Router.route('/all-tasks')
-.get(validateAuthToken,authorizeRole(["manageAllTasks"]),isUserValid,adminController.allTasks)
-.post(validateAuthToken,authorizeRole(["manageAllTasks"]),isUserValid,adminController.addTasks);
+// Manage a single user (Update/Delete)
+Router.route("/all-users/:userId")
+  .put(validateAuthToken, authorizeRole(["manageUsers"]), isUserValid, adminController.updateUser)
+  .delete(validateAuthToken, authorizeRole(["manageUsers"]), isUserValid, adminController.deleteUser);
 
-//6. to manage single task (update, delete)
-Router.route('/all-tasks/:taskId')
-.put(validateAuthToken,authorizeRole(["manageAllTasks"]),isUserValid,adminController.updateTask)
-.delete(validateAuthToken,authorizeRole(["manageAllTasks"]),isUserValid,adminController.deleteTask);
+// Get all tasks assigned to a user
+Router.route("/all-users/:userId/tasks")
+  .get(validateAuthToken, authorizeRole(["viewAllTasks"]), isUserValid, adminController.getUserTasks);
 
-
-module.exports=Router;
+module.exports = Router;

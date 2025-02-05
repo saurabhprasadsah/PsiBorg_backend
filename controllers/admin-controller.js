@@ -1,202 +1,131 @@
-const User = require("../models/users.js");
-const Task = require("../models/tasks.js");
-//Get All Users
-module.exports.getAllUsersDetails = async (req, res) => {
-  try {
-    const users = await User.find({}).select({
-      password: 0,
-    });
-    res.status(200).json({ users, success: true });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const UserModel = require("../models/users");
+const TaskModel = require("../models/tasks");
 
-module.exports.postUserDetails = async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
-    const user = new User({ name, email, password });
-    await user.save();
-    res.status(201).json({ user, success: true });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
-
-module.exports.manageUsersDetails = async (req, res) => {
-  const { userId } = req.params;
-  try {
-    const user = await User.findByIdAndUpdate(userId, req.body, {
-      new: true,
-      runValidators: true,
-    });
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+// Create the controller object first
+const adminController = {
+  /**
+   * @desc Get all users (excluding passwords)
+   * @route GET /admin/all-users
+   */
+  getAllUsers: async (req, res) => {
+    try {
+      const users = await UserModel.find().select("-password").lean();
+      res.status(200).json({ success: true, users });
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ success: false, message: "Internal server error" });
     }
-    res.status(200).json({ user, success: true });
-  } catch (error) {
-    res.status(500).json({ message: err.message });
-  }
-};
+  },
 
-module.exports.deleteUserDetails = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const user = await User.findByIdAndDelete(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+  /**
+   * @desc Add a new user (Admin Only)
+   * @route POST /admin/all-users
+   */
+  createUser: async (req, res) => {
+    try {
+      const { name, email, password } = req.body;
+
+      // Check if user already exists
+      const existingUser = await UserModel.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: "Email already in use" });
+      }
+
+      // Hash the password before saving
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const newUser = new UserModel({ name, email, password: hashedPassword });
+
+      await newUser.save();
+      res.status(201).json({ success: true, user: { name, email } });
+    } catch (error) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ success: false, message: error.message });
     }
-    res
-      .status(200)
-      .json({ success: true, message: "User has been deleted successfully" });
-  } catch (error) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-module.exports.getAllTasksOfUser = async (req, res) => {
-  const { userId } = req.params;
-  try {
-    const user = await User.findById(userId).populate({
-      path: "tasks",
-      model: "Task",
-    });
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+  },
+
+  /**
+   * @desc Update user details (Admin Only)
+   * @route PUT /admin/all-users/:userId
+   */
+  updateUser: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const updates = req.body;
+
+      // Restrict updates to allowed fields
+      const allowedFields = ["name", "email"];
+      const isValidUpdate = Object.keys(updates).every((field) => allowedFields.includes(field));
+
+      if (!isValidUpdate) {
+        return res.status(400).json({ success: false, message: "Invalid update fields" });
+      }
+
+      const updatedUser = await UserModel.findByIdAndUpdate(userId, updates, {
+        new: true,
+        runValidators: true,
+      }).select("-password");
+
+      if (!updatedUser) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      res.status(200).json({ success: true, user: updatedUser });
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ success: false, message: error.message });
     }
-    res.status(200).json({ tasks: user.tasks, success: true });
-  } catch (error) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
+  },
 
-module.exports.updateTaskToUser = async (req, res) => {
-  const {taskId } = req.params;
-  const taskUpdates = req.body; // Task update data from the request body
+  /**
+   * @desc Delete a user (Admin Only)
+   * @route DELETE /admin/all-users/:userId
+   */
+  deleteUser: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const deletedUser = await UserModel.findByIdAndDelete(userId);
 
-  try {
-   
-    const task = await Task.findOneAndUpdate(taskId,taskUpdates);
+      if (!deletedUser) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
 
-    if (!task) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Task not found or not assigned to this user" });
+      res.status(200).json({ success: true, message: "User deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ success: false, message: error.message });
     }
+  },
 
-    await task.save();
+  /**
+   * @desc Get all tasks assigned to a user
+   * @route GET /admin/all-users/:userId/tasks
+   */
+  getUserTasks: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const user = await UserModel.findById(userId).populate("tasks");
 
-    res.status(200).json({
-      success: true,
-      message: "Task updated successfully",
-      task,
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
 
-module.exports.deleteTaskFromUser = async (req, res) => {
-  const { userId, taskId } = req.params;
-  try {
-    
-    //Remove the task from the list of tasks
-   const deletedTask= await Task.findByIdAndDelete(taskId);
-   
-    // Remove the task from the user's `tasks` array using Mongoose's `$pull` operator
-    const user = await User.findByIdAndUpdate(
-      userId,
-      {
-        $pull: { tasks: taskId },
-      },
-      { new: true, runValidators: true }
-    );
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      res.status(200).json({ success: true, tasks: user.tasks });
+    } catch (error) {
+      console.error("Error fetching user tasks:", error);
+      res.status(500).json({ success: false, message: error.message });
     }
-
-    
-    res.status(200).json({ user,deletedTask,success: true });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+  },
 };
 
-module.exports.addTasksToUser = async (req, res) => {
-  try {
-    const { userId } = req.params;
+// Debug log after the controller is defined
+//console.log("Admin Controller Loaded: ", adminController);
 
-    const token = req.header("Authorization").replace("Bearer ", "").trim();
-    const jwtVerified = jwt.verify(token, process.env.JWT_SECRET_KEY);
-    // Create a new task using the Task model
-    const newTask = new Task({
-      ...req.body,
-      assignedTo: userId,
-      createdBy: jwtVerified.userId, // Assuming `req.user.id` is the logged-in user's ID
-    });
-
-    // Save the task to the database
-    await newTask.save();
-
-    // Add the task ID to the user's `tasks` array
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { $push: { tasks: newTask._id } },
-      { new: true, runValidators: true }
-    );
-
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
-    }
-
-    res.status(200).json({ success: true, task: newTask, user });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-module.exports.allTasks=async(req,res)=>{
-  try {
-    const tasks=await Task.find({});
-    res.status(200).json({tasks,success:true});
-  } catch (error) {
-    res.status(500).json({success:false,message:error.message});
-  }
+// Validation check after the controller is defined
+if (!adminController.createUser) {
+  throw new Error("Error: 'createUser' function is undefined in admin-controller.js");
 }
 
-module.exports.addTasks=async(req,res)=>{
-  try {
-    const newTask=new Task({...req.body});
-    await newTask.save();
-    res.status(201).json({task:newTask,success:true});
-  } catch (error) {
-    res.status(400).json({success:false,message:error.message});
-  }
-}
-
-module.exports.updateTask=async(req,res)=>{
-  const {taskId}=req.params;
-  try {
-    const updatedTask=await Task.findByIdAndUpdate(taskId,req.body,{new:true,runValidators:true});
-    if(!updatedTask){
-      return res.status(404).json({success:false,message:"Task not found"});
-    }
-    res.status(200).json({task:updatedTask,success:true});
-  } catch (error) {
-    res.status(500).json({success:false,message:error.message});
-  }
-}
-
-module.exports.deleteTask=async(req,res)=>{
-  const {taskId}=req.params;
-  try {
-    const deletedTask=await Task.findByIdAndDelete(taskId);
-    if(!deletedTask){
-      return res.status(404).json({success:false,message:"Task not found"});
-    }
-    res.status(200).json({success:true,message:"Task deleted successfully"});
-  } catch (error) {
-    res.status(500).json({success:false,message:error.message});
-  }
-}
+// Export the controller
+module.exports = adminController;

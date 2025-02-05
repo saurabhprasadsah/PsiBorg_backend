@@ -1,5 +1,6 @@
 const express = require("express");
 const Router = express.Router();
+const authController = require("../controllers/auth-controller");
 const {
   validateRegister,
   validateIsExist,
@@ -8,34 +9,35 @@ const {
   validateIsRegistered,
   requestLimiter,
 } = require("../middleware/auth-middleware.js");
-const authController = require("../controllers/auth-controller");
 
+// Debugging: Log Auth Controller
+//console.log("Loaded Auth Controller: ", authController);
 
-//Register route it check user is already registered and send Confirmation mail ....
+// Throw error if registerUser function is missing
+if (!authController.registerUser) {
+  throw new Error("Error: 'registerUser' function is undefined in auth-controller.js");
+}
+
+// ✅ FIXED: Use `registerUser` instead of `register`
 Router.route("/register").post(
   requestLimiter,
   validateRegister,
   validateIsExist,
-  authController.register
+  authController.registerUser // ✅ Correct function name
 );
 
-//Login Route to validate login credentials ...
+// ✅ FIXED: Use `loginUser` instead of `login`
 Router.route("/login").post(
   requestLimiter,
   validateLogin,
   validateIsRegistered,
-  authController.login
+  authController.loginUser // ✅ Correct function name
 );
 
-//Logout Route to logout the logged in user ...
-Router.route("/logout").get(
-  validateAuthToken,
-  authController.logout
-)
+// ✅ FIXED: Use `logoutUser` instead of `logout`
+Router.route("/logout").get(validateAuthToken, authController.logoutUser);
 
-//Auth route to validate the token...
-Router.route("/validate-token").get(
-  validateAuthToken,
-  authController.validateAuthToken
-);
+// ✅ FIXED: Use `validateUserToken` instead of `validateAuthToken`
+Router.route("/validate-token").get(validateAuthToken, authController.validateUserToken);
+
 module.exports = Router;
