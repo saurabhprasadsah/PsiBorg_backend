@@ -9,9 +9,11 @@ const http=require('http')
 require('dotenv').config();
 
 const corsOptions = {
-    origin: 'http://localhost:3001',  // Frontend URL (React app)
+
+    //frontend api calls
+    origin: 'http://localhost:3001',  
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true,  // Allow cookies to be sent with the request
+    credentials: true,  
 };
 
 
